@@ -7,11 +7,10 @@ Monitors client stock prices and market caps daily, sends email alerts.
 import json
 import logging
 import os
-import smtplib
 import sys
+import urllib.request
+import urllib.error
 from datetime import datetime
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -229,29 +228,45 @@ def build_email_html(
 
 
 def send_email(subject: str, html_body: str):
-    """Send email via SMTP."""
-    smtp_user = os.environ.get("SMTP_USER")
-    smtp_password = os.environ.get("SMTP_PASSWORD")
-    smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
-    smtp_from = os.environ.get("SMTP_FROM", smtp_user)
+    """Send email via Resend HTTP API (works on Railway where SMTP ports are blocked)."""
+    api_key = os.environ.get("RESEND_API_KEY") or os.environ.get("SMTP_PASSWORD")
+    sender = os.environ.get("RESEND_FROM") or os.environ.get("SMTP_FROM", "onboarding@resend.dev")
 
-    if not smtp_user or not smtp_password:
-        log.error("SMTP_USER and SMTP_PASSWORD environment variables are required")
+    if not api_key:
+        log.error("RESEND_API_KEY (or SMTP_PASSWORD) environment variable is required")
         sys.exit(1)
 
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = smtp_from
-    msg["To"] = ", ".join(RECIPIENTS)
-    msg.attach(MIMEText(html_body, "html"))
+    payload = {
+        "from": sender,
+        "to": RECIPIENTS,
+        "subject": subject,
+        "html": html_body,
+    }
+    data = json.dumps(payload).encode("utf-8")
 
-    log.info(f"Sending email via {smtp_host}:{smtp_port} to {RECIPIENTS}")
-    with smtplib.SMTP(smtp_host, smtp_port) as server:
-        server.starttls()
-        server.login(smtp_user, smtp_password)
-        server.sendmail(smtp_from, RECIPIENTS, msg.as_string())
-    log.info("Email sent successfully")
+    req = urllib.request.Request(
+        "https://api.resend.com/emails",
+        data=data,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "User-Agent": "OR-Stock-Monitor/1.0",
+        },
+        method="POST",
+    )
+
+    log.info(f"Sending email via Resend API to {RECIPIENTS}")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            body = resp.read().decode("utf-8")
+            log.info(f"Email sent successfully: {body}")
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode("utf-8", errors="replace")
+        log.error(f"Resend API error {e.code}: {err_body}")
+        sys.exit(1)
+    except urllib.error.URLError as e:
+        log.error(f"Network error calling Resend API: {e}")
+        sys.exit(1)
 
 
 def main():
