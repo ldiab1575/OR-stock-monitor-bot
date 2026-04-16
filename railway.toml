@@ -1,0 +1,8 @@
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "python monitor.py"
+cronSchedule = "0 14 * * 1-5"
+# 14:00 UTC = 10:00 AM EDT / 9:00 AM EST
+# The script handles EDT/EST internally via zoneinfo
