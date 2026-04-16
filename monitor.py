@@ -19,7 +19,6 @@ import yfinance as yf
 # --- Configuration ---
 SCRIPT_DIR = Path(__file__).parent
 CLIENTS_FILE = SCRIPT_DIR / "clients.json"
-TRACKING_FILE = SCRIPT_DIR / "tracking.json"
 LOG_FILE = SCRIPT_DIR / "monitor.log"
 
 RECIPIENTS = ["louisdiab5@gmail.com"]
@@ -63,8 +62,21 @@ def save_json(path: Path, data):
         json.dump(data, f, indent=2)
 
 
+def count_consecutive_days_under(history_closes: list, threshold: float) -> int:
+    """Count consecutive trading days (from most recent back) where close < threshold."""
+    count = 0
+    for close in reversed(history_closes):
+        if close is None:
+            continue
+        if close < threshold:
+            count += 1
+        else:
+            break
+    return count
+
+
 def fetch_stock_data(tickers: list[str]) -> dict:
-    """Fetch current price and market cap for a list of tickers."""
+    """Fetch current price, market cap, and consecutive-days-under-$1 from history."""
     results = {}
     for ticker_symbol in tickers:
         try:
@@ -85,29 +97,29 @@ def fetch_stock_data(tickers: list[str]) -> dict:
                 except Exception:
                     pass
 
+            # Compute consecutive trading days under $1 from historical data.
+            # Use 1y to handle long streaks; fall back to shorter if needed.
+            days_under = 0
+            try:
+                hist = stock.history(period="1y", auto_adjust=False)
+                if not hist.empty:
+                    closes = hist["Close"].tolist()
+                    days_under = count_consecutive_days_under(closes, PRICE_THRESHOLD)
+            except Exception as e:
+                log.warning(f"  {ticker_symbol}: history fetch failed — {e}")
+
             results[ticker_symbol] = {
                 "price": price,
                 "market_cap": market_cap,
+                "days_under": days_under,
             }
-            log.info(f"  {ticker_symbol}: price=${price}, mcap={market_cap}")
+            log.info(
+                f"  {ticker_symbol}: price=${price}, mcap={market_cap}, days_under=$1={days_under}"
+            )
         except Exception as e:
             log.warning(f"  {ticker_symbol}: fetch failed — {e}")
-            results[ticker_symbol] = {"price": None, "market_cap": None}
+            results[ticker_symbol] = {"price": None, "market_cap": None, "days_under": 0}
     return results
-
-
-def update_tracking(
-    tracking: dict, clients: dict, stock_data: dict
-) -> dict:
-    """Update consecutive-days-under-$1 tracking. Returns updated tracking dict."""
-    for client_name, ticker in clients.items():
-        data = stock_data.get(ticker, {})
-        price = data.get("price")
-        if price is not None and price < PRICE_THRESHOLD:
-            tracking[ticker] = tracking.get(ticker, 0) + 1
-        else:
-            tracking[ticker] = 0
-    return tracking
 
 
 def format_market_cap(value: float) -> str:
@@ -125,7 +137,6 @@ def format_market_cap(value: float) -> str:
 def build_email_html(
     clients: dict,
     stock_data: dict,
-    tracking: dict,
 ) -> tuple[str, bool]:
     """Build the HTML email body. Returns (html, has_flags)."""
     under_dollar = []
@@ -135,9 +146,9 @@ def build_email_html(
         data = stock_data.get(ticker, {})
         price = data.get("price")
         market_cap = data.get("market_cap")
+        days = data.get("days_under", 0)
 
         if price is not None and price < PRICE_THRESHOLD:
-            days = tracking.get(ticker, 1)
             under_dollar.append((client_name, ticker, price, days))
 
         if market_cap is not None and market_cap < MARKET_CAP_THRESHOLD:
@@ -278,28 +289,21 @@ def main():
         log.info("Not a weekday — exiting")
         return
 
-    # Load clients and tracking state
+    # Load clients
     clients = load_json(CLIENTS_FILE)
     if not clients:
         log.error("No clients found in clients.json")
         sys.exit(1)
     log.info(f"Loaded {len(clients)} clients")
 
-    tracking = load_json(TRACKING_FILE)
-
-    # Fetch data
+    # Fetch data (consecutive days computed from historical price data)
     tickers = list(clients.values())
     log.info(f"Fetching data for {len(tickers)} tickers...")
     stock_data = fetch_stock_data(tickers)
 
-    # Update tracking
-    tracking = update_tracking(tracking, clients, stock_data)
-    save_json(TRACKING_FILE, tracking)
-    log.info("Tracking state updated")
-
     # Build and send email
     today = datetime.now(ET).strftime("%Y-%m-%d")
-    html_body, has_flags = build_email_html(clients, stock_data, tracking)
+    html_body, has_flags = build_email_html(clients, stock_data)
 
     if has_flags:
         subject = f"⚠ OR Stock Alert — {today}"
