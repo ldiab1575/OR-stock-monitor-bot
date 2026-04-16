@@ -23,7 +23,7 @@ CLIENTS_FILE = SCRIPT_DIR / "clients.json"
 TRACKING_FILE = SCRIPT_DIR / "tracking.json"
 LOG_FILE = SCRIPT_DIR / "monitor.log"
 
-RECIPIENTS = ["gbai@orllp.legal", "ld@orllp.legal"]
+RECIPIENTS = ["louisdiab5@gmail.com"]
 PRICE_THRESHOLD = 1.00
 MARKET_CAP_THRESHOLD = 5_000_000
 

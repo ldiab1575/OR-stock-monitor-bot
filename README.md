@@ -1,6 +1,6 @@
 # OR Stock Monitor Bot
 
-Daily stock monitoring bot for OR LLP clients. Checks stock prices and market caps every weekday at 10:00 AM ET and sends an email alert.
+Daily stock monitoring bot for OR LLP clients. Checks stock prices and market caps every weekday at 10:00 AM ET and sends an email alert to `louisdiab5@gmail.com`.
 
 ## What it monitors
 
