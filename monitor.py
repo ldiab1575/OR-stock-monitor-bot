@@ -234,6 +234,7 @@ def send_email(subject: str, html_body: str):
     smtp_password = os.environ.get("SMTP_PASSWORD")
     smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
     smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+    smtp_from = os.environ.get("SMTP_FROM", smtp_user)
 
     if not smtp_user or not smtp_password:
         log.error("SMTP_USER and SMTP_PASSWORD environment variables are required")
@@ -241,7 +242,7 @@ def send_email(subject: str, html_body: str):
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
-    msg["From"] = smtp_user
+    msg["From"] = smtp_from
     msg["To"] = ", ".join(RECIPIENTS)
     msg.attach(MIMEText(html_body, "html"))
 
@@ -249,7 +250,7 @@ def send_email(subject: str, html_body: str):
     with smtplib.SMTP(smtp_host, smtp_port) as server:
         server.starttls()
         server.login(smtp_user, smtp_password)
-        server.sendmail(smtp_user, RECIPIENTS, msg.as_string())
+        server.sendmail(smtp_from, RECIPIENTS, msg.as_string())
     log.info("Email sent successfully")
 
 
